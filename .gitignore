@@ -1,0 +1,46 @@
+# OS and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Secrets and local env
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+
+# Logs and temp files
+*.log
+logs/
+tmp/
+temp/
+.tmp/
+
+# Node
+node_modules/
+dist/
+coverage/
+.vite/
+playwright-report/
+test-results/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Go
+bin/
+*.test
+*.out
+vendor/
+
+# Local generated data scratch
+dist-data/
