@@ -5,10 +5,12 @@ import {
   Download,
   Github,
   HeartHandshake,
+  Mic,
   Mic2,
   Play,
   Radio,
   SlidersHorizontal,
+  Square,
   Upload,
   WandSparkles,
   Waves
@@ -58,8 +60,11 @@ export function App() {
   const [processedUrl, setProcessedUrl] = useState<string | undefined>();
   const [settings, setSettings] = useState<ProcessSettings>(defaultSettings);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const [elapsedMs, setElapsedMs] = useState<number | undefined>();
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
 
   const capabilities = useQuery({
     queryKey: ["capabilities"],
@@ -127,6 +132,41 @@ export function App() {
     setAudio(demo);
     setOriginalUrl(url);
     await persistSession(demo, settings);
+  }
+
+  async function startRecording() {
+    setError(undefined);
+    audioChunksRef.current = [];
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = recorder;
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      recorder.onstop = async () => {
+        const blob = new Blob(audioChunksRef.current, { type: "audio/wav" });
+        const file = new File([blob], "recording.wav", { type: "audio/wav" });
+        await loadFile(file);
+        stream.getTracks().forEach((track) => track.stop());
+      };
+
+      recorder.start();
+      setIsRecording(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not access microphone.");
+    }
+  }
+
+  function stopRecording() {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
   }
 
   async function processCurrentAudio() {
@@ -228,14 +268,32 @@ export function App() {
                 }}
               />
               <button
+                className={`button secondary ${isRecording ? "recording-pulse" : ""}`}
+                type="button"
+                onClick={isRecording ? stopRecording : startRecording}
+              >
+                {isRecording ? (
+                  <Square className="text-rose-500" aria-hidden="true" size={18} />
+                ) : (
+                  <Mic aria-hidden="true" size={18} />
+                )}
+                {isRecording ? "Stop" : "Record"}
+              </button>
+              <button
                 className="button secondary"
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
+                disabled={isRecording}
               >
                 <Upload aria-hidden="true" size={18} />
                 Import
               </button>
-              <button className="button secondary" type="button" onClick={() => void loadDemo()}>
+              <button
+                className="button secondary"
+                type="button"
+                onClick={() => void loadDemo()}
+                disabled={isRecording}
+              >
                 <Radio aria-hidden="true" size={18} />
                 Demo
               </button>
