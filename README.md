@@ -13,6 +13,8 @@ Repository: https://github.com/baditaflorin/audio-repair-lab
 
 Support development: https://www.paypal.com/paypalme/florinbadita
 
+![Audio Repair Lab screenshot](docs/media/screenshot.png)
+
 ## Quickstart
 
 ```sh
