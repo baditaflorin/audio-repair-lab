@@ -149,8 +149,9 @@ export function App() {
       };
 
       recorder.onstop = async () => {
-        const blob = new Blob(audioChunksRef.current, { type: "audio/wav" });
-        const file = new File([blob], "recording.wav", { type: "audio/wav" });
+        const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType });
+        const extension = recorder.mimeType.includes("webm") ? "webm" : "wav";
+        const file = new File([blob], `recording.${extension}`, { type: recorder.mimeType });
         await loadFile(file);
         stream.getTracks().forEach((track) => track.stop());
       };
