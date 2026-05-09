@@ -5,7 +5,6 @@ import { extname, join, normalize } from "node:path";
 
 const docsDir = join(process.cwd(), "docs");
 const base = "/audio-repair-lab";
-const port = 4174;
 
 const contentTypes = new Map([
   [".html", "text/html; charset=utf-8"],
@@ -44,7 +43,9 @@ const server = createServer((request, response) => {
   createReadStream(filePath).pipe(response);
 });
 
-await new Promise((resolve) => server.listen(port, "127.0.0.1", resolve));
+await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+const address = server.address();
+const port = typeof address === "object" && address ? address.port : 4174;
 
 const child = spawn(
   process.platform === "win32" ? "npx.cmd" : "npx",
