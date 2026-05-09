@@ -10,7 +10,8 @@ Users currently have to import an existing audio file or use the demo clip to te
 
 ## Decision
 
-Implement a live microphone recording feature using the `MediaRecorder` API. 
+Implement a live microphone recording feature using the `MediaRecorder` API.
+
 1. Add a "Record" button to the main interface.
 2. Use `navigator.mediaDevices.getUserMedia` to request microphone access.
 3. Capture audio into a `Blob`.
