@@ -1,0 +1,14 @@
+{
+  "id": "armstrong-archival",
+  "sourceUrl": "https://commons.wikimedia.org/wiki/Special:Redirect/file/Phrase_de_Neil_Armstrong.oga",
+  "fixtureFile": "armstrong-archival.wav",
+  "shape": "archival speech",
+  "expected": {
+    "kind": "speech",
+    "processable": true,
+    "recommendedMode": "noise",
+    "minimumConfidence": 0.52,
+    "requiredReasons": ["voice-band energy"],
+    "requiredAnomalies": []
+  }
+}

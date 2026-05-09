@@ -1,0 +1,14 @@
+{
+  "id": "truncated-interview",
+  "sourceUrl": "https://commons.wikimedia.org/wiki/Special:Redirect/file/AudioEditExample-interview.ogg",
+  "fixtureFile": "truncated-interview.ogg",
+  "shape": "truncated interview upload",
+  "expected": {
+    "kind": "broken",
+    "processable": false,
+    "recommendedMode": "repair",
+    "minimumConfidence": 0.9,
+    "requiredReasons": ["truncated"],
+    "requiredAnomalies": ["decode-failed"]
+  }
+}

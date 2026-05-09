@@ -1,0 +1,14 @@
+{
+  "id": "long-radio-wav",
+  "sourceUrl": "https://commons.wikimedia.org/wiki/Special:Redirect/file/NOAA_Radio_Station_in_Robinson,_TX_(November_23,_2021).wav",
+  "fixtureFile": "long-radio-wav.wav",
+  "shape": "larger radio WAV",
+  "expected": {
+    "kind": "radio",
+    "processable": true,
+    "recommendedMode": "noise",
+    "minimumConfidence": 0.55,
+    "requiredReasons": ["narrowband speech"],
+    "requiredAnomalies": ["long-file"]
+  }
+}

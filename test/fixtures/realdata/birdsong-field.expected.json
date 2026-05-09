@@ -1,0 +1,14 @@
+{
+  "id": "birdsong-field",
+  "sourceUrl": "https://commons.wikimedia.org/wiki/Special:Redirect/file/Birdsong_morning_01.ogg",
+  "fixtureFile": "birdsong-field.wav",
+  "shape": "environmental subject audio",
+  "expected": {
+    "kind": "environment",
+    "processable": true,
+    "recommendedMode": "noise",
+    "minimumConfidence": 0.5,
+    "requiredReasons": ["non-speech spectral shape"],
+    "requiredAnomalies": ["subject-may-be-noise"]
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "id": "noaa-weather-radio",
+  "sourceUrl": "https://commons.wikimedia.org/wiki/Special:Redirect/file/NOAA_Weather_Radio_MKE-KEC60_Weekly_Test.ogg",
+  "fixtureFile": "noaa-weather-radio.wav",
+  "shape": "narrowband weather radio speech",
+  "expected": {
+    "kind": "radio",
+    "processable": true,
+    "recommendedMode": "noise",
+    "minimumConfidence": 0.55,
+    "requiredReasons": ["narrowband speech"],
+    "requiredAnomalies": ["narrowband-source"]
+  }
+}

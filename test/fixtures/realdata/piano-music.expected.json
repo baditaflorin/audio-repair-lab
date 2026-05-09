@@ -1,0 +1,14 @@
+{
+  "id": "piano-music",
+  "sourceUrl": "https://commons.wikimedia.org/wiki/Special:Redirect/file/Poem_of_Music_(Piano_Etude)_-_Student_Kim_Hui.ogg",
+  "fixtureFile": "piano-music.wav",
+  "shape": "instrumental music",
+  "expected": {
+    "kind": "music",
+    "processable": true,
+    "recommendedMode": "noise",
+    "minimumConfidence": 0.5,
+    "requiredReasons": ["music-like dynamics"],
+    "requiredAnomalies": ["no-clear-vocal-target"]
+  }
+}

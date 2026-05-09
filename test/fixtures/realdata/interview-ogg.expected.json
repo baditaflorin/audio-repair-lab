@@ -1,0 +1,14 @@
+{
+  "id": "interview-ogg",
+  "sourceUrl": "https://commons.wikimedia.org/wiki/Special:Redirect/file/AudioEditExample-interview.ogg",
+  "fixtureFile": "interview-ogg.wav",
+  "shape": "interview speech",
+  "expected": {
+    "kind": "speech",
+    "processable": true,
+    "recommendedMode": "noise",
+    "minimumConfidence": 0.58,
+    "requiredReasons": ["voice-band energy"],
+    "requiredAnomalies": []
+  }
+}

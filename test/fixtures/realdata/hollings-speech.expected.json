@@ -1,0 +1,14 @@
+{
+  "id": "hollings-speech",
+  "sourceUrl": "https://commons.wikimedia.org/wiki/Special:Redirect/file/Sen._Fritz_Hollings_in_Support_of_the_Telephone_Advertising_Consumer_Rights_Act.ogg",
+  "fixtureFile": "hollings-speech.wav",
+  "shape": "archive speech",
+  "expected": {
+    "kind": "speech",
+    "processable": true,
+    "recommendedMode": "noise",
+    "minimumConfidence": 0.52,
+    "requiredReasons": ["voice-band energy"],
+    "requiredAnomalies": []
+  }
+}

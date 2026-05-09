@@ -1,0 +1,14 @@
+{
+  "id": "silent-empty",
+  "sourceUrl": "https://commons.wikimedia.org/wiki/Special:Redirect/file/Short_Silent,_Empty_Audio.ogg",
+  "fixtureFile": "silent-empty.wav",
+  "shape": "valid silent audio",
+  "expected": {
+    "kind": "silence",
+    "processable": false,
+    "recommendedMode": "repair",
+    "minimumConfidence": 0.9,
+    "requiredReasons": ["near silence"],
+    "requiredAnomalies": ["near-silence"]
+  }
+}

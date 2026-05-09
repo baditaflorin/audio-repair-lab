@@ -1,0 +1,14 @@
+{
+  "id": "clipped-audio",
+  "sourceUrl": "https://commons.wikimedia.org/wiki/Special:Redirect/file/Digital_audio_clipping_example_-_LVB5_fragment_4._10dB_overload.ogg",
+  "fixtureFile": "clipped-audio.wav",
+  "shape": "clipped audio",
+  "expected": {
+    "kind": "music",
+    "processable": true,
+    "recommendedMode": "repair",
+    "minimumConfidence": 0.55,
+    "requiredReasons": ["clipping"],
+    "requiredAnomalies": ["clipping"]
+  }
+}
