@@ -1,6 +1,6 @@
 {
   "name": "audio-repair-lab",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": false,
   "description": "Browser-based audio repair toolkit for noise removal, vocal isolation, and quick podcast/music cleanup.",
   "type": "module",

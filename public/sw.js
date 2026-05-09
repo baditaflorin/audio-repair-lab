@@ -1,4 +1,4 @@
-const CACHE = "audio-repair-lab-v0.1.0";
+const CACHE = "audio-repair-lab-v0.2.0";
 const BASE = "/audio-repair-lab/";
 
 self.addEventListener("install", (event) => {

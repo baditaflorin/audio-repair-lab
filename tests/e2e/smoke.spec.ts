@@ -12,7 +12,7 @@ test("loads, generates demo audio, processes, and exposes project links", async 
     "href",
     "https://www.paypal.com/paypalme/florinbadita"
   );
-  await expect(page.getByText(/Version 0\.1\.0 · Commit/)).toBeVisible();
+  await expect(page.getByText(/Version 0\.2\.0 · Commit/)).toBeVisible();
 
   await page.getByRole("button", { name: "Demo" }).click();
   await expect(page.locator(".panel-kicker", { hasText: "demo-noisy-vocal.wav" })).toBeVisible();

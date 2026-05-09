@@ -57,6 +57,13 @@ user material.
 - Confidence: every process result and export carries an overall confidence and per-decision reasons.
 - Speed: median import-to-useful-first-guess under 1 second for fixtures up to 10 MB on a developer laptop.
 
+## Pass-Rate Trend
+
+| Point            | Real-data behavior                                                                                                                      |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| v0.1.0 audit     | 3/10 likely happy-path pass; at least 7/10 had manual-burden, wrong-confidence, vague-error, or stuck-state risk.                       |
+| v0.2.0 substance | 10/10 avoid crash/stuck state; 8/10 process deterministically; 2/10 fail gracefully because silence/truncation should not be processed. |
+
 ## Out Of Scope
 
 - No backend, auth, cloud processing, sharing, or cross-device sync.
