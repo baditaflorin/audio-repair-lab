@@ -1,4 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { proxy } from "comlink";
 import {
   BadgeCheck,
   Bandage,
@@ -17,18 +18,24 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Waveform } from "./components/Waveform";
+import { analyzeAudioData } from "./features/audio/lib/analysis";
 import { audioDataToObjectUrl, decodeAudioFile, encodeWav } from "./features/audio/lib/audioFile";
 import { detectCapabilities } from "./features/audio/lib/capabilities";
 import { createDemoClip } from "./features/audio/lib/demo";
 import { defaultSettings } from "./features/audio/lib/defaults";
+import { AudioRepairError, formatAudioError } from "./features/audio/lib/errors";
+import { hashAudioData } from "./features/audio/lib/hash";
 import { computeStats, getDurationSeconds } from "./features/audio/lib/stats";
 import { createSession, getRecentSessions, saveSession } from "./features/audio/lib/storage";
 import { createAudioProcessor } from "./features/audio/workers/client";
 import type {
+  AppStatus,
+  AudioAnalysis,
   AudioData,
   ProcessResult,
   ProcessSettings,
-  ProcessingMode
+  ProcessingMode,
+  SourceKind
 } from "./features/audio/types";
 
 const buildInfo = {
@@ -59,12 +66,18 @@ export function App() {
   const [processed, setProcessed] = useState<(ProcessResult & { name: string }) | undefined>();
   const [processedUrl, setProcessedUrl] = useState<string | undefined>();
   const [settings, setSettings] = useState<ProcessSettings>(defaultSettings);
+  const [analysis, setAnalysis] = useState<AudioAnalysis | undefined>();
+  const [status, setStatus] = useState<AppStatus>("idle");
   const [isProcessing, setIsProcessing] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const [processingProgress, setProcessingProgress] = useState(0);
   const [error, setError] = useState<string | undefined>();
   const [elapsedMs, setElapsedMs] = useState<number | undefined>();
+  const [history, setHistory] = useState<string[]>([]);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const learnedSettings = useRef(new Map<SourceKind, ProcessSettings>());
+  const isDebug = new URLSearchParams(window.location.search).get("debug") === "1";
 
   const capabilities = useQuery({
     queryKey: ["capabilities"],
@@ -92,6 +105,10 @@ export function App() {
 
   const sourceStats = useMemo(() => (audio ? computeStats(audio) : undefined), [audio]);
 
+  function recordHistory(message: string) {
+    setHistory((current) => [message, ...current].slice(0, 8));
+  }
+
   async function persistSession(nextAudio: AudioData, nextSettings: ProcessSettings) {
     const session = createSession({
       fileName: nextAudio.name,
@@ -105,7 +122,9 @@ export function App() {
 
   async function loadFile(file: File) {
     setError(undefined);
+    setStatus("importing");
     setProcessed(undefined);
+    setAnalysis(undefined);
     setElapsedMs(undefined);
     if (processedUrl) URL.revokeObjectURL(processedUrl);
     setProcessedUrl(undefined);
@@ -115,23 +134,54 @@ export function App() {
       if (originalUrl) URL.revokeObjectURL(originalUrl);
       setAudio(decoded);
       setOriginalUrl(URL.createObjectURL(file));
-      await persistSession(decoded, settings);
+      await prepareLoadedAudio(decoded, `Imported ${file.name}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not decode that audio file.");
+      setStatus(
+        err instanceof AudioRepairError && err.recoverable ? "recoverable-error" : "fatal-error"
+      );
+      setError(formatAudioError(err));
+      recordHistory(`Import failed: ${file.name}`);
     }
   }
 
   async function loadDemo() {
     setError(undefined);
+    setStatus("importing");
     setProcessed(undefined);
+    setAnalysis(undefined);
     setElapsedMs(undefined);
     if (processedUrl) URL.revokeObjectURL(processedUrl);
     const demo = createDemoClip();
+    demo.sourceHash = hashAudioData(demo);
+    demo.sourceSizeBytes = demo.channels.reduce((total, channel) => total + channel.byteLength, 0);
+    demo.originalChannelCount = demo.channels.length;
     const url = audioDataToObjectUrl(demo);
     if (originalUrl) URL.revokeObjectURL(originalUrl);
     setAudio(demo);
     setOriginalUrl(url);
-    await persistSession(demo, settings);
+    await prepareLoadedAudio(demo, "Loaded deterministic demo");
+  }
+
+  async function prepareLoadedAudio(nextAudio: AudioData, historyMessage: string) {
+    setStatus("analyzing");
+    const nextAnalysis = analyzeAudioData(nextAudio);
+    const remembered = learnedSettings.current.get(nextAnalysis.kind);
+    const nextSettings = remembered ?? nextAnalysis.recommendedSettings;
+    setAnalysis(nextAnalysis);
+    setSettings(nextSettings);
+    setStatus(nextAnalysis.processable ? "loaded" : "recoverable-error");
+    recordHistory(
+      `${historyMessage}: detected ${nextAnalysis.kind} (${pct(nextAnalysis.confidence)})`
+    );
+    await persistSession(nextAudio, nextSettings);
+
+    if (nextAnalysis.processable) {
+      await runProcessing(nextAudio, nextSettings, nextAnalysis);
+    } else {
+      setError(
+        nextAnalysis.warnings[0] ?? "This audio does not contain enough usable signal to process."
+      );
+    }
   }
 
   async function startRecording() {
@@ -171,46 +221,95 @@ export function App() {
   }
 
   async function processCurrentAudio() {
-    if (!audio) {
+    await runProcessing(audio, settings, analysis);
+  }
+
+  async function runProcessing(
+    nextAudio: AudioData | undefined,
+    nextSettings: ProcessSettings,
+    nextAnalysis: AudioAnalysis | undefined
+  ) {
+    if (!nextAudio || !nextAnalysis) {
       setError("Import audio or generate the demo clip first.");
       return;
     }
 
+    if (!nextAnalysis.processable) {
+      setError(nextAnalysis.warnings[0] ?? "This audio is not processable.");
+      setStatus("recoverable-error");
+      return;
+    }
+
     setIsProcessing(true);
+    setStatus("processing");
+    setProcessingProgress(0);
     setError(undefined);
     const startedAt = performance.now();
 
     try {
-      const result = await processorRef.current.api.process(audio, settings);
-      const name = processedName(audio.name, settings.mode);
+      const result = await processorRef.current.api.process(
+        nextAudio,
+        nextSettings,
+        nextAnalysis,
+        buildInfo.version,
+        proxy((progress: number) => setProcessingProgress(progress))
+      );
+      const name = processedName(nextAudio.name, nextSettings.mode);
       if (processedUrl) URL.revokeObjectURL(processedUrl);
       setProcessed({ ...result, name });
       setProcessedUrl(audioDataToObjectUrl(result));
       setElapsedMs(performance.now() - startedAt);
-      await persistSession(audio, settings);
+      setStatus("processed");
+      recordHistory(`Processed ${nextAnalysis.kind}: ${result.operations.join(" + ")}`);
+      await persistSession(nextAudio, nextSettings);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Processing failed.");
+      const message = err instanceof Error ? err.message : "Processing failed.";
+      setError(
+        message.includes("cancel")
+          ? "Processing was cancelled. Your source audio and settings are still intact."
+          : `Processing failed. The audio worker could not finish this repair. Try gentler settings or a shorter export. ${message}`
+      );
+      setStatus(message.includes("cancel") ? "cancelled" : "recoverable-error");
     } finally {
       setIsProcessing(false);
+      setProcessingProgress(0);
     }
+  }
+
+  function cancelProcessing() {
+    processorRef.current.dispose();
+    processorRef.current = createAudioProcessor();
+    setIsProcessing(false);
+    setProcessingProgress(0);
+    setStatus("cancelled");
+    recordHistory("Cancelled processing");
   }
 
   function exportProcessed() {
     if (!processed) return;
-    const blob = encodeWav(processed);
+    const blob = encodeWav(processed, processed.provenance);
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
     anchor.download = processed.name;
     anchor.click();
     URL.revokeObjectURL(url);
+    recordHistory(`Exported ${processed.name}`);
   }
 
   function updateSettings(next: Partial<ProcessSettings>) {
-    setSettings((current) => ({ ...current, ...next }));
+    setSettings((current) => {
+      const updated = { ...current, ...next };
+      if (analysis) {
+        learnedSettings.current.set(analysis.kind, updated);
+        recordHistory(`Remembered ${analysis.kind} correction for this session`);
+      }
+      return updated;
+    });
   }
 
-  const disabled = isProcessing || !audio;
+  const disabled =
+    !audio || status === "importing" || status === "analyzing" || analysis?.processable === false;
 
   return (
     <div className="min-h-screen bg-ink text-slate-100">
@@ -301,6 +400,21 @@ export function App() {
             </div>
           </div>
 
+          {analysis ? (
+            <div className="mt-4 rounded-md border border-line bg-panel2 px-3 py-3 text-sm text-slate-300">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <span>
+                  Detected {analysis.kind === "radio" ? "radio speech" : analysis.kind} · Confidence{" "}
+                  {pct(analysis.confidence)}
+                </span>
+                <span>{analysis.reasons.join(" · ")}</span>
+              </div>
+              {analysis.warnings.length ? (
+                <div className="mt-2 text-amber">{analysis.warnings.join(" ")}</div>
+              ) : null}
+            </div>
+          ) : null}
+
           <div
             className="mt-4"
             onDragOver={(event) => event.preventDefault()}
@@ -347,6 +461,12 @@ export function App() {
             <Metric
               label="Output peak"
               value={processed ? processed.stats.peak.toFixed(3) : "--"}
+            />
+            <Metric
+              label="Confidence"
+              value={
+                processed ? pct(processed.confidence) : analysis ? pct(analysis.confidence) : "--"
+              }
             />
             <Metric label="Render" value={elapsedMs ? `${Math.round(elapsedMs)} ms` : "--"} />
           </div>
@@ -445,11 +565,24 @@ export function App() {
             className="button mt-5 w-full"
             type="button"
             disabled={disabled}
-            onClick={() => void processCurrentAudio()}
+            onClick={() => (isProcessing ? cancelProcessing() : void processCurrentAudio())}
           >
             <WandSparkles aria-hidden="true" size={18} />
-            {isProcessing ? "Processing" : "Process"}
+            {isProcessing
+              ? "Cancel"
+              : status === "importing" || status === "analyzing"
+                ? "Analyzing"
+                : "Process"}
           </button>
+
+          {isProcessing ? (
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-ink">
+              <div
+                className="h-full bg-mint"
+                style={{ width: `${Math.round(processingProgress * 100)}%` }}
+              />
+            </div>
+          ) : null}
 
           <div className="mt-5 border-t border-line pt-4">
             <h3 className="text-sm font-semibold text-slate-200">Browser</h3>
@@ -477,6 +610,19 @@ export function App() {
             </div>
           </div>
         </aside>
+
+        {isDebug ? (
+          <section className="panel lg:col-span-2">
+            <h2 className="panel-title">Debug</h2>
+            <pre className="mt-3 max-h-80 overflow-auto rounded-md bg-ink p-3 text-xs text-slate-300">
+              {JSON.stringify(
+                { status, analysis, settings, history, processed: processed?.provenance },
+                null,
+                2
+              )}
+            </pre>
+          </section>
+        ) : null}
       </main>
 
       <footer className="mx-auto flex w-full max-w-7xl flex-col gap-2 px-4 pb-6 pt-2 text-xs text-slate-500 sm:px-6 md:flex-row md:items-center md:justify-between">
@@ -488,6 +634,10 @@ export function App() {
       </footer>
     </div>
   );
+}
+
+function pct(value: number): string {
+  return `${Math.round(value * 100)}%`;
 }
 
 function Slider({

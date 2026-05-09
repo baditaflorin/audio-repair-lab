@@ -5,6 +5,7 @@ export function createDemoClip(sampleRate = 44_100): AudioData {
   const length = sampleRate * seconds;
   const left = new Float32Array(length);
   const right = new Float32Array(length);
+  const random = seededRandom(0x5eed);
 
   for (let i = 0; i < length; i += 1) {
     const t = i / sampleRate;
@@ -15,7 +16,7 @@ export function createDemoClip(sampleRate = 44_100): AudioData {
       0.045 * phraseEnvelope * Math.sin(2 * Math.PI * 720 * t);
     const sideInstrument = 0.12 * Math.sin(2 * Math.PI * 660 * t) * Math.sin(2 * Math.PI * 0.7 * t);
     const hum = 0.055 * Math.sin(2 * Math.PI * 60 * t);
-    const hiss = 0.035 * (Math.random() * 2 - 1);
+    const hiss = 0.035 * (random() * 2 - 1);
     const click = i % Math.floor(sampleRate * 1.7) === 0 ? 0.82 : 0;
 
     left[i] = clamp(voice + sideInstrument + hum + hiss + click);
@@ -31,4 +32,12 @@ export function createDemoClip(sampleRate = 44_100): AudioData {
 
 function clamp(value: number): number {
   return Math.max(-0.98, Math.min(0.98, value));
+}
+
+function seededRandom(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = Math.imul(1664525, state) + 1013904223;
+    return (state >>> 0) / 0x100000000;
+  };
 }

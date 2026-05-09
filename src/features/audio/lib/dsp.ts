@@ -1,15 +1,36 @@
 import FFT from "fft.js";
-import type { AudioData, ProcessResult, ProcessSettings } from "../types";
+import type {
+  AudioAnalysis,
+  AudioData,
+  ExportProvenance,
+  ProcessResult,
+  ProcessSettings
+} from "../types";
+import { analyzeAudioData, normalizeChannels } from "./analysis";
+import { buildRunId } from "./hash";
 import { computeStats } from "./stats";
 
-export function processAudioData(audio: AudioData, settings: ProcessSettings): ProcessResult {
-  const warnings: string[] = [];
+export interface ProcessOptions {
+  analysis?: AudioAnalysis;
+  appVersion?: string;
+  onProgress?: (progress: number) => void;
+}
+
+export function processAudioData(
+  audio: AudioData,
+  settings: ProcessSettings,
+  options: ProcessOptions = {}
+): ProcessResult {
+  const analysis = options.analysis ?? analyzeAudioData(audio);
+  const warnings: string[] = [...analysis.warnings];
   const operations: string[] = [];
-  let channels = cloneChannels(audio.channels);
+  let channels = cloneChannels(normalizeChannels(audio.channels));
 
   if (audio.channels.length === 0 || (audio.channels[0]?.length ?? 0) === 0) {
     throw new Error("Audio buffer is empty.");
   }
+
+  options.onProgress?.(0.05);
 
   if (settings.mode === "noise" || settings.mode === "chain") {
     channels = reduceNoise(
@@ -19,6 +40,7 @@ export function processAudioData(audio: AudioData, settings: ProcessSettings): P
       settings.noiseSensitivity
     );
     operations.push("FFT spectral noise reduction");
+    options.onProgress?.(0.38);
   }
 
   if (settings.mode === "vocal" || settings.mode === "chain") {
@@ -34,21 +56,37 @@ export function processAudioData(audio: AudioData, settings: ProcessSettings): P
       settings.vocalTarget
     );
     operations.push(settings.vocalTarget === "vocals" ? "Stereo vocal focus" : "Center removal");
+    options.onProgress?.(0.62);
   }
 
   if (settings.mode === "repair" || settings.mode === "chain") {
     channels = repairAudio(channels, settings);
     operations.push("Click and clipping repair");
+    options.onProgress?.(0.82);
   }
 
-  channels = normalizePeak(channels, 0.98);
+  channels = normalizePeak(channels, 0.979);
+  const confidence = confidenceForResult(analysis, settings);
+  const provenance = buildProvenance(
+    audio,
+    analysis,
+    settings,
+    confidence,
+    warnings,
+    operations,
+    options.appVersion
+  );
+  options.onProgress?.(1);
 
   return {
     sampleRate: audio.sampleRate,
     channels,
     stats: computeStats({ sampleRate: audio.sampleRate, channels }),
     warnings,
-    operations
+    operations,
+    confidence,
+    decisions: analysis.decisions,
+    provenance
   };
 }
 
@@ -60,11 +98,10 @@ export function reduceNoise(
 ): Float32Array[] {
   const windowSize = chooseWindowSize(sampleRate);
   const hopSize = windowSize / 4;
-  const learnSamples = Math.min(channels[0]?.length ?? 0, Math.floor(sampleRate * 1.2));
   const window = hann(windowSize);
 
   return channels.map((channel) =>
-    spectralGate(channel, window, windowSize, hopSize, learnSamples, reduction, sensitivity)
+    spectralGate(channel, window, windowSize, hopSize, reduction, sensitivity)
   );
 }
 
@@ -137,13 +174,12 @@ function spectralGate(
   window: Float32Array,
   windowSize: number,
   hopSize: number,
-  learnSamples: number,
   reduction: number,
   sensitivity: number
 ): Float32Array {
   const fft = new FFT(windowSize);
   const frames = frameStarts(channel.length, windowSize, hopSize);
-  const noise = estimateNoiseProfile(channel, fft, window, frames, learnSamples, windowSize);
+  const noise = estimateNoiseProfile(channel, fft, window, frames, windowSize);
   const output = new Float32Array(channel.length);
   const norm = new Float32Array(channel.length);
   const floorScale = 0.9 + clamp01(sensitivity) * 2.8;
@@ -195,14 +231,15 @@ function estimateNoiseProfile(
   fft: FFT,
   window: Float32Array,
   frames: number[],
-  learnSamples: number,
   windowSize: number
 ): Float32Array {
   const profile = new Float32Array(windowSize);
-  let count = 0;
+  const ranked = frames
+    .map((start) => ({ start, energy: frameEnergy(channel, start, windowSize) }))
+    .sort((a, b) => a.energy - b.energy)
+    .slice(0, Math.max(1, Math.ceil(frames.length * 0.16)));
 
-  for (const start of frames) {
-    if (start >= learnSamples) break;
+  for (const { start } of ranked) {
     const input = windowedFrame(channel, window, start, windowSize);
     const spectrum = fft.createComplexArray();
     fft.realTransform(spectrum, input);
@@ -213,14 +250,46 @@ function estimateNoiseProfile(
       const imag = spectrum[bin * 2 + 1] ?? 0;
       profile[bin] += Math.hypot(real, imag);
     }
-    count += 1;
   }
 
+  const count = ranked.length;
   if (count === 0) return profile;
   for (let bin = 0; bin < profile.length; bin += 1) {
     profile[bin] /= count;
   }
   return profile;
+}
+
+function confidenceForResult(analysis: AudioAnalysis, settings: ProcessSettings): number {
+  let confidence = Math.min(analysis.confidence, analysis.recommendedSettingsConfidence);
+  if (analysis.kind === "music" && settings.mode === "vocal") confidence -= 0.25;
+  if (analysis.kind === "environment" && settings.noiseReduction > 0.35) confidence -= 0.2;
+  if (analysis.anomalies.includes("near-silence")) confidence -= 0.35;
+  return clamp01(confidence);
+}
+
+function buildProvenance(
+  audio: AudioData,
+  analysis: AudioAnalysis,
+  settings: ProcessSettings,
+  confidence: number,
+  warnings: string[],
+  operations: string[],
+  appVersion = "dev"
+): ExportProvenance {
+  const runId = buildRunId(analysis.sourceHash, appVersion, settings);
+  return {
+    schema: "audio-repair-export/v1",
+    appVersion,
+    sourceId: analysis.sourceId,
+    sourceHash: audio.sourceHash ?? analysis.sourceHash,
+    runId,
+    sourceKind: analysis.kind,
+    settings,
+    confidence,
+    warnings,
+    operations
+  };
 }
 
 function voiceBandFocus(channel: Float32Array, sampleRate: number, strength: number): Float32Array {
@@ -340,6 +409,15 @@ function windowedFrame(
     frame[i] = (channel[start + i] ?? 0) * (window[i] ?? 0);
   }
   return frame;
+}
+
+function frameEnergy(channel: Float32Array, start: number, size: number): number {
+  let total = 0;
+  for (let i = 0; i < size; i += 1) {
+    const sample = channel[start + i] ?? 0;
+    total += sample * sample;
+  }
+  return total / size;
 }
 
 function frameStarts(length: number, windowSize: number, hopSize: number): number[] {
