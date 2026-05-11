@@ -559,6 +559,35 @@ export function App() {
               />
               Soften clipping
             </label>
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={settings.removeHum}
+                onChange={(event) => updateSettings({ removeHum: event.currentTarget.checked })}
+              />
+              Remove mains hum
+            </label>
+            {settings.removeHum ? (
+              <div>
+                <label className="control-label" htmlFor="hum-frequency">
+                  Hum fundamental
+                </label>
+                <select
+                  id="hum-frequency"
+                  className="select"
+                  value={settings.humFrequency}
+                  onChange={(event) =>
+                    updateSettings({
+                      humFrequency: event.target.value as "auto" | "50" | "60"
+                    })
+                  }
+                >
+                  <option value="auto">Auto-detect</option>
+                  <option value="50">50 Hz (Europe / Asia)</option>
+                  <option value="60">60 Hz (Americas / Japan)</option>
+                </select>
+              </div>
+            ) : null}
           </div>
 
           <button

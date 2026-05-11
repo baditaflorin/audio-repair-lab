@@ -8,5 +8,7 @@ export const defaultSettings: ProcessSettings = {
   vocalTarget: "vocals",
   repairStrength: 0.58,
   removeClicks: true,
-  softenClipping: true
+  softenClipping: true,
+  removeHum: false,
+  humFrequency: "auto"
 };

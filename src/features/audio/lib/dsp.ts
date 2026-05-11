@@ -7,6 +7,7 @@ import type {
   ProcessSettings
 } from "../types";
 import { analyzeAudioData, normalizeChannels } from "./analysis";
+import { removeHumFromChannels, resolveHumFrequency } from "./dehum";
 import { buildRunId } from "./hash";
 import { computeStats } from "./stats";
 
@@ -31,6 +32,16 @@ export function processAudioData(
   }
 
   options.onProgress?.(0.05);
+
+  if (
+    settings.removeHum &&
+    (settings.mode === "noise" || settings.mode === "chain" || settings.mode === "repair")
+  ) {
+    const fundamental = resolveHumFrequency(settings.humFrequency, channels, audio.sampleRate);
+    channels = removeHumFromChannels(channels, audio.sampleRate, fundamental);
+    operations.push(`Mains hum notch (${fundamental} Hz + harmonics)`);
+    options.onProgress?.(0.22);
+  }
 
   if (settings.mode === "noise" || settings.mode === "chain") {
     channels = reduceNoise(

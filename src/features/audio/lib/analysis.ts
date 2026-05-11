@@ -353,6 +353,10 @@ function inferSettings(
   }
   if (features.humScore > 0.34) {
     settings.noiseSensitivity = Math.max(settings.noiseSensitivity, 0.58);
+    settings.removeHum = true;
+    if (settings.mode !== "noise" && settings.mode !== "chain") {
+      settings.mode = "chain";
+    }
   }
 
   return settings;

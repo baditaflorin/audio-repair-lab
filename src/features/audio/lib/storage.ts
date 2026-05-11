@@ -18,7 +18,9 @@ const sessionSchema = z.object({
     vocalTarget: z.enum(["vocals", "instrumental"]),
     repairStrength: z.number().min(0).max(1),
     removeClicks: z.boolean(),
-    softenClipping: z.boolean()
+    softenClipping: z.boolean(),
+    removeHum: z.boolean().default(false),
+    humFrequency: z.enum(["auto", "50", "60"]).default("auto")
   })
 });
 

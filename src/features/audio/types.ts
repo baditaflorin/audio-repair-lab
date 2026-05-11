@@ -1,5 +1,6 @@
 export type ProcessingMode = "noise" | "vocal" | "repair" | "chain";
 export type VocalTarget = "vocals" | "instrumental";
+export type HumFrequencyOption = "auto" | "50" | "60";
 export type SourceKind =
   | "speech"
   | "radio"
@@ -43,6 +44,8 @@ export interface ProcessSettings {
   repairStrength: number;
   removeClicks: boolean;
   softenClipping: boolean;
+  removeHum: boolean;
+  humFrequency: HumFrequencyOption;
 }
 
 export interface Decision {
