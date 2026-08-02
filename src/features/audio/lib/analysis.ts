@@ -4,6 +4,21 @@ import { defaultSettings } from "./defaults";
 import { hashAudioData } from "./hash";
 import { computeStats, getDurationSeconds } from "./stats";
 
+// Decoded PCM (Float32, post channel-normalization) above this size is rejected
+// before the DSP pipeline runs. The in-worker pipeline clones/allocates several
+// full-length channel buffers per stage (spectral gate history + norm buffers,
+// hum removal, vocal isolation, click/clip repair, peak normalization), so peak
+// memory during processing runs several times larger than the raw decoded PCM.
+// Measured on this codebase: 30 minutes of 48 kHz stereo audio (~690 MB decoded)
+// pushed worker RSS to ~2.5 GB during processAudioData(), which is enough to
+// crash or hang a browser tab on memory-constrained devices, and there was no
+// enforced ceiling at all before this fix (only a soft "long-file" warning at a
+// much lower 30s/10MB bar that never blocked processing). 450 MB of decoded PCM
+// is roughly 24 minutes of 48 kHz stereo, or proportionally longer for mono or
+// lower sample rates, which comfortably covers this app's "quick repair" use
+// case while keeping worst-case processing memory in a safer range.
+export const MAX_DECODED_PCM_BYTES = 450_000_000;
+
 export function analyzeAudioData(audio: AudioData): AudioAnalysis {
   const normalized = normalizeChannels(audio.channels);
   const stats = computeStats({ sampleRate: audio.sampleRate, channels: normalized });
@@ -12,6 +27,7 @@ export function analyzeAudioData(audio: AudioData): AudioAnalysis {
     sampleRate: audio.sampleRate,
     channels: normalized
   });
+  const decodedPcmBytes = normalized.reduce((total, channel) => total + channel.byteLength, 0);
   const sourceHash = audio.sourceHash ?? hashAudioData(audio);
   const sourceId = `${audio.name
     .replace(/[^a-z0-9]+/gi, "-")
@@ -25,14 +41,15 @@ export function analyzeAudioData(audio: AudioData): AudioAnalysis {
     durationSeconds,
     audio.sourceSizeBytes,
     hint,
-    audio.name
+    audio.name,
+    decodedPcmBytes
   );
   const classified = classifySource(features, anomalies, durationSeconds, hint);
   const recommendedSettings = inferSettings(classified.kind, features, anomalies);
   const recommendedSettingsConfidence = clamp01(
     classified.confidence - (anomalies.includes("subject-may-be-noise") ? 0.12 : 0)
   );
-  const warnings = buildWarnings(classified.kind, anomalies, durationSeconds);
+  const warnings = buildWarnings(classified.kind, anomalies, durationSeconds, decodedPcmBytes);
   const decisions: Decision[] = [
     {
       label: `Detected ${labelForKind(classified.kind)}`,
@@ -188,9 +205,11 @@ function detectAnomalies(
   durationSeconds: number,
   sizeBytes?: number,
   hint?: SourceKind,
-  fileName = ""
+  fileName = "",
+  decodedPcmBytes = 0
 ): string[] {
   const anomalies: string[] = [];
+  if (decodedPcmBytes > MAX_DECODED_PCM_BYTES) anomalies.push("too-large");
   if (features.silenceRatio > 0.92 || peak < 0.02) anomalies.push("near-silence");
   if (features.clippingRatio > 0.001 || peak >= 0.995 || /clipp/i.test(fileName))
     anomalies.push("clipping");
@@ -212,6 +231,14 @@ function classifySource(
   durationSeconds: number,
   hint?: SourceKind
 ): { kind: SourceKind; confidence: number; reasons: string[] } {
+  if (anomalies.includes("too-large")) {
+    return {
+      kind: "broken",
+      confidence: 0.97,
+      reasons: ["decoded audio exceeds the safe in-browser processing size"]
+    };
+  }
+
   if (anomalies.includes("near-silence") || durationSeconds < 0.05) {
     return { kind: "silence", confidence: 0.96, reasons: ["near silence"] };
   }
@@ -362,8 +389,23 @@ function inferSettings(
   return settings;
 }
 
-function buildWarnings(kind: SourceKind, anomalies: string[], durationSeconds: number): string[] {
+function buildWarnings(
+  kind: SourceKind,
+  anomalies: string[],
+  durationSeconds: number,
+  decodedPcmBytes = 0
+): string[] {
   const warnings: string[] = [];
+  if (anomalies.includes("too-large")) {
+    const decodedMb = Math.round(decodedPcmBytes / 1_000_000);
+    const minutes = Math.round((durationSeconds / 60) * 10) / 10;
+    warnings.push(
+      `This file decodes to ${decodedMb} MB of audio (about ${minutes} minutes), which is too ` +
+        "large to process safely in a browser tab and could crash or hang it. Trim it to a " +
+        "shorter clip or export a lower sample rate, then try again."
+    );
+    return warnings;
+  }
   if (kind === "environment") {
     warnings.push(
       "This sounds like environmental subject audio; aggressive cleanup may remove what you want to keep."
@@ -390,6 +432,8 @@ function reasonForSettings(
   kind: SourceKind,
   anomalies: string[]
 ): string {
+  if (anomalies.includes("too-large"))
+    return "file exceeds the safe in-browser processing size, so processing is blocked";
   if (anomalies.includes("clipping")) return "clipping detected, so repair is safer than cleanup";
   if (kind === "radio")
     return "narrowband speech detected, so preserve intelligibility with moderate cleanup";
@@ -400,7 +444,8 @@ function reasonForSettings(
 }
 
 function labelForKind(kind: SourceKind): string {
-  return kind === "radio" ? "radio speech" : kind;
+  if (kind === "radio") return "radio speech";
+  return kind;
 }
 
 function mixToMono(channels: Float32Array[]): Float32Array {

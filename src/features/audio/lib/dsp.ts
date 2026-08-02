@@ -25,7 +25,14 @@ export function processAudioData(
   const analysis = options.analysis ?? analyzeAudioData(audio);
   const warnings: string[] = [...analysis.warnings];
   const operations: string[] = [];
-  let channels = cloneChannels(normalizeChannels(audio.channels));
+  // normalizeChannels() already returns freshly allocated Float32Arrays (it never
+  // aliases audio.channels), and none of the DSP stages below mutate their input
+  // in place — each returns new arrays. An extra clone here used to duplicate the
+  // full-length channel buffers a second time for no safety benefit, roughly
+  // doubling peak memory for this stage on every single process() call. See
+  // docs/adr/0041-input-robustness-normalization.md and the huge-input ceiling
+  // added in analyzeAudioData for the rest of the large-file memory fix.
+  let channels = normalizeChannels(audio.channels);
 
   if (audio.channels.length === 0 || (audio.channels[0]?.length ?? 0) === 0) {
     throw new Error("Audio buffer is empty.");
@@ -452,10 +459,6 @@ function chooseWindowSize(sampleRate: number): number {
   if (sampleRate >= 88_200) return 4096;
   if (sampleRate >= 44_100) return 2048;
   return 1024;
-}
-
-function cloneChannels(channels: Float32Array[]): Float32Array[] {
-  return channels.map((channel) => new Float32Array(channel));
 }
 
 function clamp01(value: number): number {

@@ -41,6 +41,23 @@ describe("audio DSP", () => {
     expect(first ? Math.max(...first.map(Math.abs)) : Number.POSITIVE_INFINITY).toBeLessThan(0.001);
   });
 
+  it("does not mutate the caller's original channel buffers", () => {
+    // processAudioData() used to clone the normalized channels a second time
+    // (normalizeChannels() + a redundant cloneChannels() call) purely to be safe
+    // against accidental mutation. That second clone was removed to cut peak
+    // memory on large files; this test locks in the invariant that made it safe
+    // to remove: the original Float32Arrays passed in by the caller must never
+    // be modified by processing.
+    const audio = createDemoClip(16_000);
+    const originalLeft = new Float32Array(audio.channels[0] ?? new Float32Array());
+    const originalRight = new Float32Array(audio.channels[1] ?? new Float32Array());
+
+    processAudioData(audio, { ...defaultSettings, mode: "chain" });
+
+    expect(audio.channels[0]).toEqual(originalLeft);
+    expect(audio.channels[1]).toEqual(originalRight);
+  });
+
   it("repairs isolated click spikes", () => {
     const channel = new Float32Array(200);
     channel.fill(0.02);
